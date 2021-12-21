@@ -2,6 +2,7 @@
 :toc:
 :source-highlighter: pygments
 :toclevels: 3
+:experimental:
 
 
 ifdef::env-github[]
@@ -135,7 +136,7 @@ The task depends on cloning the **Integration Repository**, which contains the n
 +
 The custom image for the Integration Server is built based on the BAR file. Therefore, the task `build-is-image` also depends <<generate-bar, `generate-bar`>>
 +
-Note that our link:https://github.com/ace-hello-world/infrastructure/blob/master/Dockerfile[Dockerfile] makse use of production image from IBM Cloud Container Registry. You'd need to put the IBM Entitlement Key on a secret, and add the secret to the service account the pipeline runs with. In this tutorial we are going add the secret to the `pipeline` service account, as we will be running the pipeline with `pipeline` service account, See ...
+Note that our link:https://github.com/ace-hello-world/infrastructure/blob/master/Dockerfile[Dockerfile] makse use of production image from IBM Cloud Container Registry. You'd need to put the IBM Entitlement Key on a secret, and add the secret to the service account the pipeline runs with. In this tutorial we are going add the secret to the `pipeline` service account, as we will be running the pipeline with `pipeline` service account. We will cover this in the section, <<Steps, Steps>>, in the <<service-account, Update Service Account>> step.
 
 . Deploying Integration Server
 +
@@ -158,7 +159,7 @@ We are going to use a single workspace, `shared-workspace`. All the tasks will m
 
 === The Custom Tasks
 
-==== [[resolve-props]] Resolving the properties (link:code/task/resolve_props.yaml[resolve_props.yaml])
+==== [[resolve-props]] Resolving the properties (link:https://github.com/ace-hello-world/infrastructure/blob/master/cicd/task/resolve_props.yaml[resolve_props.yaml])
 
 [cols="1,3,4"]
 |===
@@ -217,7 +218,7 @@ We are going to use a single workspace, `shared-workspace`. All the tasks will m
 
 [NOTE]
 ====
-In this tutorial, we are only making use of `is-application-names`, `release-name` and `endpoint-path`
+In this tutorial, we are only making use of `is-application-names` and `release-name`
 ====
 
 Pipeline properties which details the specific of a deployment is maintained on the **Source Repository** in a file names, `pipeline_properties.yaml`. Following is an example:
@@ -235,11 +236,11 @@ In above, we specified application names that are to be part of this Integration
 
 Finally, we are specifying an endpoint path. In this particular example, the integration application we are deploying is a HTTP application, which can be invoked via its GET method. The result is a JSON message which can verified with a functional test.
 
-The task makes use of link:https://mikefarah.gitbook.io/yq/[`yq`] command to extract out properties. We build a custom container image that include `yq` (version 3). See link:code/image/yq-zip[yq-zip] 
+The task makes use of link:https://mikefarah.gitbook.io/yq/[`yq`] command to extract out properties. We build a custom container image that include `yq` (version 4).
 
 The task emits the properties as task results. Subsequent tasks can make use of the properties from the results.
 
-==== [[generate-bar]] Generate Bar (link:custom-tasks/generate_bar.yaml[generate_bar.yaml])
+==== [[generate-bar]] Generate Bar (link:https://github.com/ace-hello-world/infrastructure/blob/master/cicd/task/generate_bar.yaml[generate_bar.yaml])
 
 [cols="1,3,4"]
 |===
@@ -274,7 +275,7 @@ The task makes use of `ace-applications` and `release-name` which are emiited fr
 The BAR created will be placed on the workspace, `shared-workspace`, under `bars` sub-folder.
 
 
-==== [[deploy-is]] Deploy Integration Server (link:code/task/deploy-is.yaml[deploy_is.yaml])
+==== [[deploy-is]] Deploy Integration Server (link:https://github.com/ace-hello-world/infrastructure/blob/master/cicd/task/deploy_is.yaml[deploy_is.yaml])
 
 [cols="1,3,5"]
 |===
@@ -340,7 +341,7 @@ image::images/app_connect_operator.png[]
 
 Installing these are out of scope of this guide. Please consult link:https://www.ibm.com/docs/en/cloud-paks/cp-integration/2021.4?topic=installing-overview-installation[IBM Cloud Pak for Integration - Overview: Installation]
 
-=== Steps
+=== [[Steps]] Steps
 
 . Create a namespace
 +
@@ -358,7 +359,7 @@ In order to use the production image for App Connect Enterprise for our Integrat
 .. Obtaining your entitlement key, and
 .. Adding a pull secret to a namespace
 
-. Edit `pipeline` service account to add the `ibm-entitlement-key` secret.
+. [[service-account]] Edit `pipeline` service account to add the `ibm-entitlement-key` secret.
 +
 [source,bash,attributes]
 ----
@@ -372,7 +373,7 @@ on the code editor, add `ibm-entitlement-key` under, `secrets:` field:
 secrets:
 - name: pipeline-token-... <1>
 - name: pipeline-dockercfg-... <1>
-- name: ibm-entitlment-key <2>
+- name: ibm-entitlement-key <2>
 ----
 <1> existing secrets on the service account
 <2> to be added
@@ -380,7 +381,7 @@ secrets:
 
 . Examine the cicd files from Infrasture repository
 +
-Custom tekton tasks in the folder link:code/task[code/task] are needed by our pipeline.
+Custom tekton tasks in the folder link:https://github.com/ace-hello-world/infrastructure/tree/master/cicd/task[code/task] are needed by our pipeline.
 
 .. Clone this repo
 +
@@ -429,11 +430,10 @@ pipeline:: folder contains pipeline definition as well as pipeline run definitio
 task:: folder contains pipeline definition as well as pipeline run definition
 --
 
-. Create the custom images needed by the task
+. Create the custom image, `mqsicreatebar`, needed by the task
 +
---
-mqsicreatebar:: Follow the instruction, link:code/image/mqsicreatebar[mqsicreatebar], to create the image, `mqsicreatebar:12.0.3.0`. Then
-+
+Follow the instruction, link:https://github.com/ace-hello-world/infrastructure/tree/master/cicd/image/mqsicreatebar[mqsicreatebar], to create the image, `mqsicreatebar:12.0.3.0`. Then
+
 .. Expose the OpenShift internal container registry, if not already exposed:
 +
 [source,bash,attributes]
@@ -442,7 +442,6 @@ oc patch configs.imageregistry.operator.openshift.io/cluster --patch '{"spec":{"
 ----
 +
 See more at link:https://docs.openshift.com/container-platform/4.8/registry/securing-exposing-registry.html[Exposing the registry]
-
 
 .. Store the registry url in a shell variable:
 +
@@ -474,7 +473,6 @@ docker tag mqsicreatebar:12.0.3.0 $openshift_registry/ace-hello-world/mqsicreate
 docker push $openshift_registry/ace-hello-world/mqsicreatebar
 ----
 
---
 
 . Apply the tasks
 +
@@ -485,7 +483,43 @@ oc apply -f cicd/task
 
 
 . Apply the Pipeline
++
+[source,bash,attributes]
+----
+oc apply -f cicd/pipeline/pipeline.yaml
+----
++
+At this point, you should be able to visualise the pipeline on the OCP Administor UI
++
+image::images/pipeline_ocp_ui.png[]
++
+You can reach this UI from OCP Web Console, menu:Pipelines[Pipelines > is-build-hello-world]
 
-. Update Pipeline Run
+. Create the Persistent Volume Claim
++
+A workspace is needed to store files and artifacts so that they can be shared between the tasks. For this, we would need to create a Persistent Volume Claim. We will name it `ace-cicd-hello-world`, and refer to it in the link:https://github.com/ace-hello-world/infrastructure/blob/master/cicd/pipeline/pipeline_run.yaml[pipeline_run.yaml] manifest.
++
+From the OCP Web Console, menu:Storage[PersistentVolumeClaims]
++
+image::images/create_pvc.png[]
++
+Click on btn:[Create PersistentVolumeClaims]
++
+image::images/shared_pvc.png[]
++
+Ensure that the ReadWriteMany capable storage is created. 
 
 . Create a Pipeline Run
++
+[source,bash,attributes]
+----
+oc create -f cicd/pipeline/pipeline_run.yaml
+----
++
+image::images/pipeline_running.png[]
++
+Click on the pipeline run instance, to see the more details on the running instance of the pipeline:
++
+image::images/pipeline_run_details.png[]
++
+Once all tasks are completed, you should see the successful deployment of the Integration Server.

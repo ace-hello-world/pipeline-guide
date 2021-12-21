@@ -404,13 +404,11 @@ You should see the followings
 ----
 cicd
 ├── image
-│   ├── mqsicreatebar
-│   │   ├── Dockerfile
-│   │   ├── README.asciidoc
-│   │   ├── deps
-│   │   └── mqsicreatebar.sh
-│   └── yq-zip
-│       └── Dockerfile
+│   └── mqsicreatebar
+│       ├── Dockerfile
+│       ├── README.asciidoc
+│       ├── deps
+│       └── mqsicreatebar.sh
 ├── pipeline
 │   ├── pipeline.yaml
 │   └── pipeline_run.yaml
@@ -423,7 +421,7 @@ cicd
 In above, 
 +
 --
-image:: folder contains custom container image definition, Dockerfiles, for custom image `mqsicreatebar` and `yq-zip`.
+image:: folder contains custom container image definition, Dockerfile, for custom image `mqsicreatebar`.
 
 pipeline:: folder contains pipeline definition as well as pipeline run definition
 

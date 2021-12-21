@@ -1,0 +1,494 @@
+= Pipeline: ACE Integration Server
+:toc:
+:source-highlighter: pygments
+:toclevels: 3
+
+
+ifdef::env-github[]
+:tip-caption: :bulb:
+:note-caption: :information_source:
+:important-caption: :heavy_exclamation_mark:
+:caution-caption: :fire:
+:warning-caption: :warning:
+endif::[]
+
+
+This documentation describes a Tekton based pipeline that builds and deploys a simple ACE application. 
+
+The application defines message flow that takes input from an HTTPInput node on path `/helloworld`, adds a JSON field, `message` with string "Hello, World!", and replies with HTTPReply node.
+
+image::images/hello_world_message_flow.png[] 
+
+The ESQL transformation for the Compute node is as simple as
+
+[source,ESQL,attributes]
+----
+CREATE COMPUTE MODULE helloworld_helloworld
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		SET OutputRoot.JSON.Data.message = 'Hello, World!';
+
+		RETURN TRUE;
+	END;
+
+END MODULE;
+----
+
+The source code for the Application can be found here: link:https://github.com/ace-hello-world/HelloWorld[]. One can use App Connect Toolkit to import this application from the GitHub repository.
+
+== Repositories
+
+To separate concerns, for this simple Integration Server deployments, there are two repositories:
+
+Infrastructure::
+
+Maintains any infrastructure definition files related to the deployment of an Integration Server. The infrastructure files are __**not**__ meant to be specfic for an Integration Server deployment but generic enough to be applicable to many similar Integration Servers.
++
+The repository contains templated Custom Resource deifition for `IntegrationServer` and `Dockerfile` for custom Integration Server image.
++
+The repository is maintained by __DevOps Administrator__ for an organisation. Changes to the content of the repository are expected to be slow paced and controlled. Once set up and tested, they are likely to be used by many different deployements of Integration Servers. 
++
+In this tutorial, we will use link:https://github.com/ace-hello-world/infrastructure[] as our infrastructure repository.
+
+Source::
+
+Contains the source code of the Integration Server message flow. These usually uploaded from ACE toolkit. 
++
+The repository also contains deployment properties, which includes
++
+--
+* Application Name of the message flow
+
+* Desired release name of the Integration Server
+
+--
++
+The repository is maintained by an __Integration Server Developer__. Changes to this repository is expected to be frequent as message flows get updated and added.
++
+As mentioned earlier, source repository of our simple ACE Application is: link:https://github.com/ace-hello-world/HelloWorld[]
+
+
+== Pipeline Overview
+
+The pipeline can be depicted as:
+
+ifdef::env-github[]
+++++
+<p align="center">
+  <img src="images/pipeline.svg">
+</p>
+++++
+endif::[]
+ifndef::env-github[]
+image::images/pipeline.svg[align="center"]
+endif::[]
+
+The pipeline is defined in link:code/pipeline/pipeline.yaml[pipeline.yaml]. A pipeline run is defined in link:code/pipeline/pipeline_run.yaml[pipeline_run.yaml]
+
+There are few tasks in the pipeline, where some tasks have others as dependencies. For example, `build-is-image` task, which is responsible for building the Integration Server image, depends on 
+
+* `generate-bar` task, which is responsible for generating the BAR file, and
+
+* `clone-is-infra` task, which is responsible for cloning the **Infrastructure**.
+
+Several tasks can execute in the same time if their dependencies have already been executed. This includes tasks, such as `clone-is-source` and `clone-is-infra` do not have any dependencies.
+
+To understand the pipeline, we can segment it like the following
+
+. Building the BAR
++
+ifdef::env-github[]
+++++
+<p align="center">
+  <img src="images/build_bar.svg">
+</p>
+++++
+endif::[]
+ifndef::env-github[]
+image::images/build_bar.svg[align="center"]
+endif::[]
++
+The BAR file is created from the Integration Server source code, maintained in the **Source Repository**. Required deployment properties, such as name of the ACE project files, are defined in the **Source Repository** as well. 
++
+Task runs:
++
+`clone-is-source`:: 
+is done with a run of Cluster Task, `git-clone`
++
+`resolve-props`:: 
+is done with a run of custom task, <<resolve-props, `resolve-props`>>
++
+`generate-bar`::
+is done with a run of custom task, <<generate-bar, `generate-bar`>>
+
+. Building the image
++
+ifdef::env-github[]
+++++
+<p align="center">
+  <img src="images/build_image.svg">
+</p>
+++++
+endif::[]
+ifndef::env-github[]
+image::images/build_image.svg[align="center"]
+endif::[]
++
+The custom image for the Integration Server is built based on the BAR file. The Dockerfile is defined in the **Integration Repository**.
++
+Task runs:
++
+`clone-is-infra`:: 
+is done with a run of Cluster Task, `git-clone`
++
+`generate-bar`::
+is done with a run of custom task, <<generate-bar, `generate-bar`>>
++
+`build-is-image`::
+is done with a run of cluster task, link:https://github.com/tektoncd/catalog/tree/master/task/buildah/0.2[`buildah`].
+
++
+Note that for buildah uses the link:https://github.com/ace-hello-world/infrastructure/blob/master/Dockerfile[Dockerfile] from the Infrastructure repostiory. The base image is the production image from IBM Cloud Container Registry. You'd need to put the IBM Entitlement Key on a secret, and add the secret to the service account the pipeline runs with. In this tutorial we are going add the secret to the `pipeline` service account, as we will be running the pipeline with `pipeline` service account.
+
+. Deploying Integration Server
++
+ifdef::env-github[]
+++++
+<p align="center">
+  <img src="images/deploy.svg">
+</p>
+++++
+endif::[]
+ifndef::env-github[]
+image::images/deploy.svg[align="center"]
+endif::[]
++
+Deploying of the Integration Server requires the image. 
++
+Task runs:
++
+`build-is-image`::
+is done with a run of cluster task, link:https://github.com/tektoncd/catalog/tree/master/task/buildah/0.2[`buildah`].
++
+`deploy-is`::
+is done with a run of cluster task custom task, <<deploy-is, `deploy-is`>>.
+
+
+=== The workspace
+
+We are going to use a single workspace, `shared-workspace`. All the tasks will make use of this shared workspace, but may only read/write from/to a sub-folder within the workspace.
+
+=== The Custom Tasks
+
+==== [[resolve-props]] Resolving the properties (link:code/task/resolve_props.yaml[resolve_props.yaml])
+
+[cols="1,3,4"]
+|===
+| Type | Name | Description
+
+| Workspace
+| `input`
+| The workspace
+
+| Parameters
+
+| `is-source-directory` 
+| Subfolder within the workspace where **Source Repository** is cloned into. 
+
+
+.10+| Results
+
+| `is-application-names` 
+| Names of the message flow applications
+
+| `release-name`
+| The desired release name for the `Integration Server`
+
+| `is-configuration-keystores`
+| List of __keystore__ type `Configuration` objects to be created 
+
+| `is-configuration-trustores`
+| List of __truststore__ type `Configuration` objects to be created
+
+| `is-configuration-setdbparms`
+| List of __setdbparms__ type `Configuration` objects to be created
+
+| `is-configuration-serverconf`
+| List of __serverconf__ type `Configuration` objects to be created
+
+| `is-configuration-policyproject`
+| List of __Policy Project__ type `Configuration` objects to be created
+
+| `is-configuration-policyproject`
+| List of __Loopback data source__ type `Configuration` objects to be created
+
+| `endpoint-path`
+| For HTTP application, this specifies the endpoint for functional tests 
+
+
+| `mq-queue-name`
+| Name of the queue on which the `Integration Server` puts (or get) messages
+
+| `mq-end-point-policy-file`
+| Name of the MQ EndPoint policy file that details the connection to the **MQ Instance**
+
+| `registry-host`
+| Internal hostname of the OpenShift registry
+
+|===
+
+[NOTE]
+====
+In this tutorial, we are only making use of `is-application-names`, `release-name` and `endpoint-path`
+====
+
+Pipeline properties which details the specific of a deployment is maintained on the **Source Repository** in a file names, `pipeline_properties.yaml`. Following is an example:
+
+[source,yaml]
+----
+integrationServer:
+  applicationNames:
+    - HelloWorld
+  releaseName: hello-world
+  endpoint-path: helloworld
+----
+
+In above, we specified application names that are to be part of this Integration Server. Mutliple application names can be specified. We also specify the release name of our integration server. This will be used in deploying the integration server via the ACE operator. 
+
+Finally, we are specifying an endpoint path. In this particular example, the integration application we are deploying is a HTTP application, which can be invoked via its GET method. The result is a JSON message which can verified with a functional test.
+
+The task makes use of link:https://mikefarah.gitbook.io/yq/[`yq`] command to extract out properties. We build a custom container image that include `yq` (version 3). See link:code/image/yq-zip[yq-zip] 
+
+The task emits the properties as task results. Subsequent tasks can make use of the properties from the results.
+
+==== [[generate-bar]] Generate Bar (link:custom-tasks/generate_bar.yaml[generate_bar.yaml])
+
+[cols="1,3,4"]
+|===
+| Type | Name | Description
+
+| Workspace
+| `input`
+| The workspace
+
+.4+| Parameters
+
+| `is-source-directory` 
+| Subfolder within the workspace where **Source Repository** is cloned into. The message flows are maintained in this repository.
+
+| `is-application-names`
+| Names of the applications to be part of the BAR file
+
+| `bar-location`
+| Directory where the BAR file will be created
+
+| `bar-filename`
+| Name of the bar file
+
+|===
+
+The ACE Toolkit program, `mqsicreatebar`, can be used to create a BAR from ACE project. Within the container, the toolkit program need to run in headless mode. 
+
+We have docker image that runs the `mqsicreatebar` command in headless mode. See link:code/image/mqsicreatebar[mqsicreatebar] how to create the docker image.
+
+The task makes use of `ace-applications` and `release-name` which are emiited from the `resolve-props` tasks.
+
+The BAR created will be placed on the workspace, `shared-workspace`, under `bars` sub-folder.
+
+
+==== [[deploy-is]] Deploy Integration Server (link:code/task/deploy-is.yaml[deploy_is.yaml])
+
+[cols="1,3,5"]
+|===
+| Type | Name | Description
+
+| Workspace
+| `input`
+| The workspace
+
+.4+| Parameters
+
+| `is-infra-directory` 
+| Subfolder within the workspace where **Infrastructure Repository** is cloned into. 
+
+| `IMAGE` 
+| Fully qualified name of the custom image
+
+| `release-name` 
+| Name of the release the `Integration Server` be deployed as.
+
+| `configurations` 
+| Configurations that are part of the `Integration Server` to be deployed.
+
+|===
+
+
+The task is responsible to creating the `Integration Server` custom resource. This is done with in two steps:
+
+. Create the `Integration Server` manifest
+
+. Apply the `Integration Server` manifest
+
+=====  Create the `Integration Server` manifest
+
+The `Integration Server` manifest is created on the workspace (under a directory named, `integration_server`). The template for the manifest is maintained in the **Infrastructure Repository**.
+
+`yq` is used to modify the manifest file to inject the release name, image name and the configurations. `yq` is from the custom image, `yq-zip` (see link:custom-images/yq-zip[yq-zip])
+
+=====  Create the `Integration Server` manifest
+
+Done by simply running `oc apply` on the manifest.
+
+== Step by Step tutorial
+
+=== Pre-requisite
+
+We will run this pipeline on an OpenShift cluster. We assume the following installed on the cluster:
+
+* Red Hat OpenShift Pipelines Operator
++
+image::images/tekton.png[]
+
+* IBM Cloud Pak for Integration Platform Navigator
++
+image::images/platform_navigator_operator.png[]
+
+* An instance of Platform Navigator
+
+
+* App Connect Operator
++
+image::images/app_connect_operator.png[]
+
+Installing these are out of scope of this guide. Please consult link:https://www.ibm.com/docs/en/cloud-paks/cp-integration/2021.4?topic=installing-overview-installation[IBM Cloud Pak for Integration - Overview: Installation]
+
+=== Steps
+
+. Create a namespace
++
+We will keep our Integration Server and the tekton pipeline and tasks that deploys it in a specific namespace. Lets create that namespace:
++
+[source,bash,attributes]
+----
+oc new-project ace-hello-world
+----
+
+. Create the `ibm-entitlement-key` secret
++
+In order to use the production image for App Connect Enterprise for our Integration Server, our pipeline need to access the IBM Cloud Container Registry. The entitlement key need to be stored in a secret in the same namespace. Follow the guide, link:https://www.ibm.com/docs/en/cloud-paks/cp-integration/2021.4?topic=installing-applying-your-entitlement-key-online-installation[Applying your entitlement key] and specifically follow the steps:
+
+.. Obtaining your entitlement key, and
+.. Adding a pull secret to a namespace
+
+
+. Examine the cicd files from Infrasture repository
++
+Custom tekton tasks in the folder link:code/task[code/task] are needed by our pipeline.
+
+.. Clone this repo
++
+[source,bash,attributes]
+----
+git clone https://github.com/ace-hello-world/infrastructure
+----
+
+.. Examine the cicd files
++
+[source,bash,attributes]
+----
+cd infrastructure
+tree .
+----
++
+You should see the followings
++
+[source,bash,attributes]
+----
+cicd
+├── image
+│   ├── mqsicreatebar
+│   │   ├── Dockerfile
+│   │   ├── README.asciidoc
+│   │   ├── deps
+│   │   └── mqsicreatebar.sh
+│   └── yq-zip
+│       └── Dockerfile
+├── pipeline
+│   ├── pipeline.yaml
+│   └── pipeline_run.yaml
+└── task
+    ├── deploy_is.yaml
+    ├── generate_bar.yaml
+    └── resolve_props.yaml
+----
++
+In above, 
++
+--
+image:: folder contains custom container image definition, Dockerfiles, for custom image `mqsicreatebar` and `yq-zip`.
+
+pipeline:: folder contains pipeline definition as well as pipeline run definition
+
+task:: folder contains pipeline definition as well as pipeline run definition
+--
+
+. Create the custom images needed by the task
++
+--
+mqsicreatebar:: Follow the instruction, link:code/image/mqsicreatebar[mqsicreatebar], to create the image, `mqsicreatebar:12.0.3.0`. Then
++
+.. Expose the OpenShift internal container registry, if not already exposed:
++
+[source,bash,attributes]
+----
+oc patch configs.imageregistry.operator.openshift.io/cluster --patch '{"spec":{"defaultRoute":true}}' --type=merge
+----
++
+See more at link:https://docs.openshift.com/container-platform/4.8/registry/securing-exposing-registry.html[Exposing the registry]
+
+
+.. Store the registry url in a shell variable:
++
+[source,bash,attributes]
+----
+openshift_registry=$(oc -n openshift-image-registry get routes default-route -o jsonpath='{.spec.host}')
+----
+
+.. Login to the registry
++
+[source,bash,attributes]
+----
+docker login $openshift_registry -u oc -p "$(oc whoami -t)"
+----
++
+Make sure you are logged in to your OpenShift instance.
+
+.. Tag the `mqsicreatebar` image so that registry url is set to the OpenShift registry:
++
+[source,bash,attributes]
+----
+docker tag mqsicreatebar:12.0.3.0 $openshift_registry/ace/mqsicreatebar
+----
+
+.. Push the image
++
+[source,bash,attributes]
+----
+docker push $openshift_registry/ace/mqsicreatebar
+----
+
+--
+
+. Apply the tasks
++
+[source,bash,attributes]
+----
+oc apply -f cicd/task
+----
+
+
+. Apply the Pipeline
+
+. Update Pipeline Run
+
+. Create a Pipeline Run

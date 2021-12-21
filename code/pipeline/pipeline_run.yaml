@@ -1,0 +1,21 @@
+apiVersion: tekton.dev/v1alpha1
+kind: PipelineRun
+metadata:
+  name: is-build-hello-world
+spec:
+  params:
+    - name: is-source-repo-url
+      value: https://github.com/ace-hello-world/HelloWorld.git
+
+    - name: is-infra-repo-url
+      value: https://github.com/ace-hello-world/infrastructure.git
+
+  pipelineRef:
+    name: is-build-hello-world
+
+  serviceAccountName: pipeline
+
+  workspaces:
+    - name: shared-workspace
+      persistentVolumeClaim:
+        claimName: ace-cicd-hello-world

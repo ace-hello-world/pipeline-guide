@@ -44,15 +44,15 @@ Infrastructure::
 
 Maintains any infrastructure definition files related to the deployment of an Integration Server. The infrastructure files are __**not**__ meant to be specfic for an Integration Server deployment but generic enough to be applicable to many similar Integration Servers.
 +
-The repository contains templated Custom Resource deifition for `IntegrationServer` and `Dockerfile` for custom Integration Server image.
+The repository contains templated Custom Resource deifition for `IntegrationServer` and `Dockerfile` for custom Integration Server image. It also contains CI/CD pipeline defintions files.
 +
 The repository is maintained by __DevOps Administrator__ for an organisation. Changes to the content of the repository are expected to be slow paced and controlled. Once set up and tested, they are likely to be used by many different deployements of Integration Servers. 
 +
 In this tutorial, we will use link:https://github.com/ace-hello-world/infrastructure[] as our infrastructure repository.
 
-Source::
+[[source-repository]]Source::
 
-Contains the source code of the Integration Server message flow. These usually uploaded from ACE toolkit. 
+Contains the source code of the App Connect Enterprise message flows. These can uploaded from ACE toolkit footnote:[Git plugin is required in ACE toolkit in order to push changes of message flows from ACE toolkit to a Git repository. IBM App Connect Enterprise for Developers, version 12, pre-installs Git plugin within the toolkit].
 +
 The repository also contains deployment properties, which includes
 +
@@ -83,7 +83,7 @@ ifndef::env-github[]
 image::images/pipeline.svg[align="center"]
 endif::[]
 
-The pipeline is defined in link:code/pipeline/pipeline.yaml[pipeline.yaml]. A pipeline run is defined in link:code/pipeline/pipeline_run.yaml[pipeline_run.yaml]
+The pipeline is defined in link:https://github.com/ace-hello-world/infrastructure/blob/master/cicd/pipeline/pipeline.yaml[pipeline.yaml]. A pipeline run is defined in link:https://github.com/ace-hello-world/infrastructure/blob/master/cicd/pipeline/pipeline_run.yaml[pipeline_run.yaml]
 
 There are few tasks in the pipeline, where some tasks have others as dependencies. For example, `build-is-image` task, which is responsible for building the Integration Server image, depends on 
 
@@ -108,18 +108,13 @@ ifndef::env-github[]
 image::images/build_bar.svg[align="center"]
 endif::[]
 +
-The BAR file is created from the Integration Server source code, maintained in the **Source Repository**. Required deployment properties, such as name of the ACE project files, are defined in the **Source Repository** as well. 
+The BAR file is created from the ACE application source code, maintained in the **Source Repository**. Required deployment properties, such as name of the ACE project files, are defined in the **Source Repository** as well. 
 +
-Task runs:
+The first task, `clone-is-source`, which is an instance of Cluster Task, `git-clone` clones the ACE message flows from the <<source-repository, source>> 
 +
-`clone-is-source`:: 
-is done with a run of Cluster Task, `git-clone`
+Next, `resolve-props` task is executed that resolves the pipeline properties. This is a custom tekton task. See <<resolve-props, `resolve-props`>> for more details.
 +
-`resolve-props`:: 
-is done with a run of custom task, <<resolve-props, `resolve-props`>>
-+
-`generate-bar`::
-is done with a run of custom task, <<generate-bar, `generate-bar`>>
+Finally, `generate-bar` taks is executed which generates a BAR from a source code. This is a custom task as well. See <<generate-bar, `generate-bar`>> for details.
 
 . Building the image
 +
@@ -134,21 +129,13 @@ ifndef::env-github[]
 image::images/build_image.svg[align="center"]
 endif::[]
 +
-The custom image for the Integration Server is built based on the BAR file. The Dockerfile is defined in the **Integration Repository**.
+`build-is-image` task is responsible for creating the custom image and pushing it to the internal registry of the cluster. The task run is an instance of the Cluster Task, Buildah.
 +
-Task runs:
+The task depends on cloning the **Integration Repository**, which contains the needed link:https://github.com/ace-hello-world/infrastructure/blob/master/Dockerfile[Dockerfile]. Therefore, `clone-is-infra`, which is an instance of Cluster Task, `git-clone`, needed to be executed first.
 +
-`clone-is-infra`:: 
-is done with a run of Cluster Task, `git-clone`
+The custom image for the Integration Server is built based on the BAR file. Therefore, the task `build-is-image` also depends <<generate-bar, `generate-bar`>>
 +
-`generate-bar`::
-is done with a run of custom task, <<generate-bar, `generate-bar`>>
-+
-`build-is-image`::
-is done with a run of cluster task, link:https://github.com/tektoncd/catalog/tree/master/task/buildah/0.2[`buildah`].
-
-+
-Note that for buildah uses the link:https://github.com/ace-hello-world/infrastructure/blob/master/Dockerfile[Dockerfile] from the Infrastructure repostiory. The base image is the production image from IBM Cloud Container Registry. You'd need to put the IBM Entitlement Key on a secret, and add the secret to the service account the pipeline runs with. In this tutorial we are going add the secret to the `pipeline` service account, as we will be running the pipeline with `pipeline` service account.
+Note that our link:https://github.com/ace-hello-world/infrastructure/blob/master/Dockerfile[Dockerfile] makse use of production image from IBM Cloud Container Registry. You'd need to put the IBM Entitlement Key on a secret, and add the secret to the service account the pipeline runs with. In this tutorial we are going add the secret to the `pipeline` service account, as we will be running the pipeline with `pipeline` service account, See ...
 
 . Deploying Integration Server
 +
@@ -163,16 +150,7 @@ ifndef::env-github[]
 image::images/deploy.svg[align="center"]
 endif::[]
 +
-Deploying of the Integration Server requires the image. 
-+
-Task runs:
-+
-`build-is-image`::
-is done with a run of cluster task, link:https://github.com/tektoncd/catalog/tree/master/task/buildah/0.2[`buildah`].
-+
-`deploy-is`::
-is done with a run of cluster task custom task, <<deploy-is, `deploy-is`>>.
-
+Deploying of the Integration Server is done with a run of cluster task custom task, <<deploy-is, `deploy-is`>>. The task requires the image, and therefore it depends on task `build-is-image`.
 
 === The workspace
 
@@ -333,7 +311,7 @@ The task is responsible to creating the `Integration Server` custom resource. Th
 
 The `Integration Server` manifest is created on the workspace (under a directory named, `integration_server`). The template for the manifest is maintained in the **Infrastructure Repository**.
 
-`yq` is used to modify the manifest file to inject the release name, image name and the configurations. `yq` is from the custom image, `yq-zip` (see link:custom-images/yq-zip[yq-zip])
+`yq` is used to modify the manifest file to inject the release name, image name and the configurations. 
 
 =====  Create the `Integration Server` manifest
 
@@ -379,6 +357,25 @@ In order to use the production image for App Connect Enterprise for our Integrat
 
 .. Obtaining your entitlement key, and
 .. Adding a pull secret to a namespace
+
+. Edit `pipeline` service account to add the `ibm-entitlement-key` secret.
++
+[source,bash,attributes]
+----
+oc edit serviceaccount pipeline
+----
++
+on the code editor, add `ibm-entitlement-key` under, `secrets:` field:
++
+[source,yaml,attributes]
+----
+secrets:
+- name: pipeline-token-... <1>
+- name: pipeline-dockercfg-... <1>
+- name: ibm-entitlment-key <2>
+----
+<1> existing secrets on the service account
+<2> to be added
 
 
 . Examine the cicd files from Infrasture repository
@@ -467,14 +464,14 @@ Make sure you are logged in to your OpenShift instance.
 +
 [source,bash,attributes]
 ----
-docker tag mqsicreatebar:12.0.3.0 $openshift_registry/ace/mqsicreatebar
+docker tag mqsicreatebar:12.0.3.0 $openshift_registry/ace-hello-world/mqsicreatebar
 ----
 
 .. Push the image
 +
 [source,bash,attributes]
 ----
-docker push $openshift_registry/ace/mqsicreatebar
+docker push $openshift_registry/ace-hello-world/mqsicreatebar
 ----
 
 --

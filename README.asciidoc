@@ -520,4 +520,37 @@ Click on the pipeline run instance, to see the more details on the running insta
 +
 image::images/pipeline_run_details.png[]
 +
-Once all tasks are completed, you should see the successful deployment of the Integration Server.
+Once all tasks are completed, you should see the following:
++
+image::images/pipeline_run_done.png[]
+
+. Verify the deployment
++
+An `IntegrationServer` resource would be created on the namespace. You can verify that by Searching for the resource. menu:Home[Search]. On the btn:[Resources] drop down, type in `IntegrationServer` and select the item. 
++
+image::images/search_is.png[] 
++
+This should show the `hello-world` Integration Server:
++
+image::images/is_server_success.png[] 
++
+You can copy the route of the IntegrationServer from menu:Networking[Routes]
++
+image::images/route.png[]
++
+The above will give you just the route the Interation Server. Our application is on the path, `helloworld`, and this path needed to be appended to the URL, to test it with `curl`:
++
+[source,bash,attributes]
+----
+curl <route>/helloworld
+----
++
+which should give you the following:
++
+[source,bash,attributes]
+----
+{"message":"Hello, World!"}
+----
+
+
+

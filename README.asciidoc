@@ -268,7 +268,7 @@ The task emits the properties as task results. Subsequent tasks can make use of 
 
 The ACE Toolkit program, `mqsicreatebar`, can be used to create a BAR from ACE project. Within the container, the toolkit program need to run in headless mode. 
 
-We have docker image that runs the `mqsicreatebar` command in headless mode. See link:https://github.com/ace-hello-world/pipeline-guide/blob/master/code/image/mqsicreatebar[mqsicreatebar] how to create the docker image.
+We have docker image that runs the `mqsicreatebar` command in headless mode. See link:https://github.com/ace-hello-world/infrastructure/tree/master/cicd/image/mqsicreatebar[mqsicreatebar] how to create the docker image.
 
 The task makes use of `ace-applications` and `release-name` which are emiited from the `resolve-props` tasks.
 
